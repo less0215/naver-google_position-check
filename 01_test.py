@@ -352,7 +352,21 @@ if selected_tab == "네이버":
                     # 스타일 정의 부분 (기존 코드 유지)
                     st.markdown("""
                     <style>
-                        ...
+                        .color-box {
+                            padding: 10px;
+                            border-radius: 4px;
+                            margin-bottom: 10px;
+                        }
+                        .color-box p {
+                            margin: 0;
+                            font-size: 16px;
+                            text-align: center;
+                        }
+                        .section-header {
+                            font-size: 20px;
+                            font-weight: bold;
+                            margin-bottom: 15px;
+                        }
                     </style>
                     """, unsafe_allow_html=True)
 
@@ -432,8 +446,48 @@ if selected_tab == "네이버":
                                 df = pd.DataFrame(results_list)
                                 styled_df = df.style.apply(lambda row: [color_keyword(val, keyword_types, row['키워드'], col) for col, val in row.items()], axis=1)
                                 st.dataframe(styled_df, use_container_width=True)
-                            
-                                # ... (키워드 배경색 설명 등 기존 코드 유지)
+
+                                st.markdown("<br>", unsafe_allow_html=True)
+
+                                st.markdown('<p class="section-header">키워드 배경색 설명</p>', unsafe_allow_html=True)
+                                col1, col2, col3 = st.columns(3)
+
+                                with col1:
+                                    st.markdown(
+                                        """
+                                        <div class="color-box" style="background-color: #FFB3BA;">
+                                            <p>지식스니펫 + 스마트블럭</p>
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+
+                                with col2:
+                                    st.markdown(
+                                        """
+                                        <div class="color-box" style="background-color: #90EE90;">
+                                            <p>지식스니펫</p>
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+
+                                with col3:
+                                    st.markdown(
+                                        """
+                                        <div class="color-box" style="background-color: #ADD8E6;">
+                                            <p>스마트블럭</p>
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+
+                                if smartblock_keywords:
+                                    st.markdown("<br>", unsafe_allow_html=True)
+                                    st.markdown('<p class="section-header">스마트블럭 키워드 및 연관 키워드</p>', unsafe_allow_html=True)
+                                    for kw, related_kws in smartblock_keywords.items():
+                                        with st.expander(f"키워드: {kw}"):
+                                            st.write(f"연관 키워드: {', '.join(related_kws)}")
 
                             # 진행 상황 업데이트
                             progress_bar.progress((i + 1) / len(keyword_list))
@@ -483,7 +537,7 @@ def process_keywords(keyword_list, dongju_url_dict):
 
 # 구글 탭 내의 코드를 다음과 같이 수정
 if selected_tab == "구글":
-    st.title("🔍 구글 순위 체크 및 검색량 조회")
+    st.title("🔍 구글 순위 체크")  # 타이틀 변경
 
     # 팀 선택
     google_selected_team = st.selectbox("팀 선택", ["성범죄연구센터", "교통음주연구센터", "청소년연구센터", "사기횡령연구센터", "신규 형사(SEO)"])
@@ -514,8 +568,6 @@ if selected_tab == "구글":
         results = {
             '키워드': keyword,
             '스니펫': '',
-            'VOL': '',
-            'SD': '',
         }
 
         for i in range(1, 16):
@@ -603,5 +655,14 @@ if selected_tab == "구글":
                 for keyword, related_kws in related_keywords_dict.items():
                     with st.expander(f"키워드: {keyword}"):
                         st.write(f"연관 검색어: {', '.join(related_kws)}")
+
+                # 엑셀 다운로드 버튼 추가
+                excel_data = create_excel(df, {}, {})  # 구글 검색에서는 keyword_types와 smartblock_keywords를 사용하지 않으므로 빈 딕셔너리 전달
+                st.download_button(
+                    label="📥 엑셀 다운로드",
+                    data=excel_data,
+                    file_name="google_search_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
 
     st.info("'순위 확인' 버튼을 클릭해서 검색 결과를 실시간으로 확인하세요.")
