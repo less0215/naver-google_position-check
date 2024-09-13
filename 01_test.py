@@ -450,13 +450,13 @@ if selected_tab == "네이버":
                                 st.markdown("<br>", unsafe_allow_html=True)
 
                                 st.markdown('<p class="section-header">키워드 배경색 설명</p>', unsafe_allow_html=True)
-                                col1, col2, col3 = st.columns(3)
+                                col1, col2, col3, col4 = st.columns(4)
 
                                 with col1:
                                     st.markdown(
                                         """
                                         <div class="color-box" style="background-color: #FFB3BA;">
-                                            <p>지식스니펫 + 스마트블럭</p>
+                                            <p style="text-align: left;">지식스니펫 + 스마트블럭</p>
                                         </div>
                                         """,
                                         unsafe_allow_html=True
@@ -466,7 +466,7 @@ if selected_tab == "네이버":
                                     st.markdown(
                                         """
                                         <div class="color-box" style="background-color: #90EE90;">
-                                            <p>지식스니펫</p>
+                                            <p style="text-align: left;">지식스니펫</p>
                                         </div>
                                         """,
                                         unsafe_allow_html=True
@@ -476,7 +476,17 @@ if selected_tab == "네이버":
                                     st.markdown(
                                         """
                                         <div class="color-box" style="background-color: #ADD8E6;">
-                                            <p>스마트블럭</p>
+                                            <p style="text-align: left;">스마트블럭</p>
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+
+                                with col4:
+                                    st.markdown(
+                                        """
+                                        <div class="color-box" style="background-color: #F0F2F6;">
+                                            <p style="text-align: left;">일반키워드</p>
                                         </div>
                                         """,
                                         unsafe_allow_html=True
