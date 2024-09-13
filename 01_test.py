@@ -16,6 +16,9 @@ import hashlib
 import hmac
 import base64
 import traceback
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+
 
 st.set_page_config(
     page_title="법무법인 동주 SEO",
@@ -56,6 +59,9 @@ class Signature:
         hash.hexdigest()
         return base64.b64encode(hash.digest())
 
+# 전역 변수로 WebDriver 풀 생성
+driver_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+
 def process_smartblock_results(driver, dongju_id_list):
     extracted_ids = []
     html = driver.page_source
@@ -65,16 +71,13 @@ def process_smartblock_results(driver, dongju_id_list):
     for keyword in keywords:
         href = keyword.get('href', '').split('/')[3]
         
-        # 카페 아이디 추출 ('?art' 앞부분만)
         if '?art' in href:
             extracted_id = href.split('?art')[0]
-        # 블로그 아이디 추출
         else:
             extracted_id = href
         
         extracted_ids.append(extracted_id)
 
-    # dongju_id_list와 비교
     matching_id = next((id for id in extracted_ids if id in dongju_id_list), None)
     
     return matching_id
@@ -106,6 +109,109 @@ def get_search_volume(keyword):
         return result['monthlyPcQcCnt'], result['monthlyMobileQcCnt']
     else:
         return 0, 0
+
+def get_naver_search_results(keyword, dongju_id_list):
+    keyword_type = ''
+
+    driver = driver_pool.submit(initialize_webdriver).result()
+    if driver is None:
+        return None
+
+    results = {
+        '키워드': keyword,
+        '스니펫': '',
+        '스블': '',
+        'M': 0,
+        'P': 0
+    }
+    for i in range(1, 16):
+        results[f'{i}'] = ''
+
+    try:
+        preprocessed_keyword = keyword.replace(" ", "")
+        driver.get(f"https://search.naver.com/search.naver?ssc=tab.nx.all&where=nexearch&sm=tab_jum&query={preprocessed_keyword}")
+
+        keyword_type = ''
+        is_knowledge_snippet = False
+        is_smartblock = False
+        
+        # 지식스니펫 확인
+        try:
+            knowledge_snippet = WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '.source_box .txt.elss'))
+            )
+            split_knowledge_snippet = knowledge_snippet.get_attribute('href').split('/')[3]
+            is_knowledge_snippet = True
+            if split_knowledge_snippet in dongju_id_list:
+                results['스니펫'] = split_knowledge_snippet
+        except:
+            pass
+        
+        # 스마트블럭 확인 및 처리
+        try:
+            WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '.gSQMmoVs7gF12hlu3vMg.desktop_mode.api_subject_bx'))
+            )
+            is_smartblock = True
+            results['스블'] = process_smartblock_results(driver, dongju_id_list)
+        except:
+            pass
+        
+        # 키워드 유형 결정
+        if is_knowledge_snippet and is_smartblock:
+            keyword_type = 'both'
+        elif is_knowledge_snippet:
+            keyword_type = 'knowledge_snippet'
+        elif is_smartblock:
+            keyword_type = 'smartblock'
+
+        # 블로그 탭 클릭
+        WebDriverWait(driver, 3).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, '.flick_bx:nth-of-type(3) > a'))
+        ).click()
+
+        # 블로그 순위 체크
+        blog_ids = WebDriverWait(driver, 3).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.user_info a'))
+        )
+        for rank, blog_id in enumerate(blog_ids[:15], start=1):
+            href = blog_id.get_attribute('href')
+            extracted_id = href.split('/')[-1]
+            if extracted_id in dongju_id_list:
+                results[f'{rank}'] = extracted_id
+
+        # 검색량 조회
+        pc_volume, mobile_volume = get_search_volume(preprocessed_keyword)
+        results['M'] = mobile_volume
+        results['P'] = pc_volume
+
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        st.error(f"키워드 '{keyword}' 처리 중 오류 발생: {str(e)}")
+        st.text(error_msg)
+        st.info("오류가 지속되면 관리자에게 문의하세요.")
+    finally:
+        driver_pool.submit(driver.quit)
+
+    return results, keyword_type
+
+def process_keywords(keyword_list, dongju_id_list):
+    results_list = []
+    keyword_types = {}
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_keyword = {executor.submit(get_naver_search_results, keyword, dongju_id_list): keyword for keyword in keyword_list}
+        for future in concurrent.futures.as_completed(future_to_keyword):
+            keyword = future_to_keyword[future]
+            try:
+                results, keyword_type = future.result()
+                if results is not None:
+                    results_list.append(results)
+                    keyword_types[keyword] = keyword_type
+            except Exception as exc:
+                st.error(f'{keyword} generated an exception: {exc}')
+    
+    return results_list, keyword_types
 
 # 색상 적용 함수
 def color_keyword(val, keyword_types, keyword, column_name):
@@ -216,191 +322,82 @@ if selected_tab == "네이버":
         if not keywords:
             st.error("키워드를 입력해주세요.")
         else:
-            # 키워드 리스트 생성 (원본 키워드 유지)
             keyword_list = [keyword.strip() for keyword in keywords.split('\n') if keyword.strip()]
-
+            
             if not keyword_list:
                 st.error("유효한 키워드를 입력해주세요.")
             else:
-                driver = initialize_webdriver()
-                if driver is None:
-                    st.stop()
+                # 실시간 결과 표시를 위한 placeholder
+                result_placeholder = st.empty()
+                progress_bar = st.progress(0)
 
-                try:
-                    # 결과를 저장할 리스트 초기화
-                    results_list = []
-                    keyword_types = {}  # 키워드 유형을 저장할 딕셔너리
-                    smartblock_keywords = {}  # 스마트블럭 키워드와 연관 키워드를 저장할 딕셔너리
+                results_list, keyword_types = process_keywords(keyword_list, dongju_id_list)
 
-                    # 실시간 결과 표시를 위한 placeholder
-                    result_placeholder = st.empty()
+                # 스타일 정의 부분 추가
+                st.markdown("""
+                <style>
+                    .color-box {
+                        padding: 10px;
+                        border-radius: 4px;  # 모서리 둥글기 적용
+                        margin-bottom: 10px;
+                    }
+                    .color-box p {
+                        margin: 0;
+                        font-size: 16px;  # 설명 텍스트 폰트 크기 증가
+                        text-align: center;  # 텍스트 중앙 정렬
+                    }
+                    .section-header {
+                        font-size: 20px;
+                        font-weight: bold;
+                        margin-bottom: 15px;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
 
-                    # 진행 상황 표시를 위한 progress bar
-                    progress_bar = st.progress(0)
+                # 결과 표시
+                with result_placeholder.container():
+                    st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
+                    df = pd.DataFrame(results_list)
+                    styled_df = df.style.apply(lambda row: [color_keyword(val, keyword_types, row['키워드'], col) for col, val in row.items()], axis=1)
+                    st.dataframe(styled_df, use_container_width=True)
 
-                    # 스타일 정의 부분 수정
-                    st.markdown("""
-                    <style>
-                        .color-box {
-                            padding: 10px;
-                            border-radius: 4px;  # 모서리 둥글기 적용
-                            margin-bottom: 10px;
-                        }
-                        .color-box p {
-                            margin: 0;
-                            font-size: 16px;  # 설명 텍스트 폰트 크기 증가
-                            text-align: center;  # 텍스트 중앙 정렬
-                        }
-                        .section-header {
-                            font-size: 20px;
-                            font-weight: bold;
-                            margin-bottom: 15px;
-                        }
-                        </style>
-                    """, unsafe_allow_html=True)
-
-                    # 각 키워드에 대해 검색 수행
-                    for i, keyword in enumerate(keyword_list):
-                        try:
-                            preprocessed_keyword = preprocess_keyword(keyword)
-                            driver.get(f"https://search.naver.com/search.naver?ssc=tab.nx.all&where=nexearch&sm=tab_jum&query={preprocessed_keyword}")
-
-                            keyword_type = ''
-                            is_knowledge_snippet = False
-                            is_smartblock = False
-                            
-                            # 지식스니펫 확인 (이전과 동일)
-                            snippet_id = ''
-                            try:
-                                knowledge_snippet = driver.find_element(By.CSS_SELECTOR, '.source_box .txt.elss').get_attribute('href')
-                                split_knowledge_snippet = knowledge_snippet.split('/')[3]
-                                is_knowledge_snippet = True
-                                if split_knowledge_snippet in dongju_id_list:
-                                    snippet_id = split_knowledge_snippet
-                            except:
-                                pass
-                            
-                            # 스마트블럭 확인 및 처리 (수정됨)
-                            smartblock_id = ''
-                            try:
-                                smartblock_research = driver.find_element(By.CSS_SELECTOR, '.gSQMmoVs7gF12hlu3vMg.desktop_mode.api_subject_bx')
-                                is_smartblock = True
-                                smartblock_id = process_smartblock_results(driver, dongju_id_list)
-                            except:
-                                pass
-                            
-                            # 키워드 유형 결정
-                            if is_knowledge_snippet and is_smartblock:
-                                keyword_type = 'both'
-                            elif is_knowledge_snippet:
-                                keyword_type = 'knowledge_snippet'
-                            elif is_smartblock:
-                                keyword_type = 'smartblock'
-
-                            # 키워드 유형 저장 (원본 키워드 사용)
-                            keyword_types[keyword] = keyword_type
-
-                            # 블로그 탭 클릭
-                            WebDriverWait(driver, 10).until(
-                                EC.element_to_be_clickable((By.CSS_SELECTOR, '.flick_bx:nth-of-type(3) > a'))
-                            ).click()
-
-                            # 무한스크롤 처리
-                            last_height = driver.execute_script("return document.body.scrollHeight")
-                            while True:
-                                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                                time.sleep(random.uniform(1, 1.5))
-                                new_height = driver.execute_script("return document.body.scrollHeight")
-                                if new_height == last_height:
-                                    break
-                                last_height = new_height
-
-                            # 블로그 순위 체크
-                            blog_ids = driver.find_elements(By.CSS_SELECTOR, '.user_info a')
-                            results = {j: '' for j in range(1, 16)}  # 모든 순위를 빈 문자열로 초기화
-                            for rank, blog_id in enumerate(blog_ids, start=1):
-                                if rank > 15:  # 15위까지만 체크
-                                    break
-                                href = blog_id.get_attribute('href')
-                                extracted_id = href.split('/')[-1]
-                                if extracted_id in dongju_id_list:
-                                    results[rank] = extracted_id
-
-                            # 검색량 조회 (전처리된 키워드 사용)
-                            pc_volume, mobile_volume = get_search_volume(preprocessed_keyword)
-
-                            # 결과 리스트에 추가 (원본 키워드 사용, 스마트블럭 ID 추가)
-                            row = {'키워드': keyword, '스니펫': snippet_id, '스블': smartblock_id, 'M': mobile_volume, 'P': pc_volume}
-                            row.update(results)
-                            results_list.append(row)
-
-                            # 실시간으로 결과 표시 부분 수정
-                            with result_placeholder.container():
-                                st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
-                                df = pd.DataFrame(results_list)
-                                styled_df = df.style.apply(lambda row: [color_keyword(val, keyword_types, row['키워드'], col) for col, val in row.items()], axis=1)
-                                st.dataframe(styled_df, use_container_width=True)  # 반응형 데이터프레임
-                            
-                                st.markdown("<br>", unsafe_allow_html=True)
-                            
-                                st.markdown('<p class="section-header">키워드 배경색 설명</p>', unsafe_allow_html=True)
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    st.markdown(
-                                        """
-                                        <div class="color-box" style="background-color: #FFB3BA;">
-                                            <p>지식스니펫 + 스마트블럭</p>
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True
-                                    )
-                                
-                                with col2:
-                                    st.markdown(
-                                        """
-                                        <div class="color-box" style="background-color: #90EE90;">
-                                            <p>지식스니펫</p>
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True
-                                    )
-                                
-                                with col3:
-                                    st.markdown(
-                                        """
-                                        <div class="color-box" style="background-color: #ADD8E6;">
-                                            <p>스마트블럭</p>
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True
-                                    )
-                            
-                                if smartblock_keywords:
-                                    st.markdown("<br>", unsafe_allow_html=True)
-                                    st.markdown('<p class="section-header">스마트블럭 키워드 및 연관 키워드</p>', unsafe_allow_html=True)
-                                    for kw, related_kws in smartblock_keywords.items():
-                                        with st.expander(f"키워드: {kw}"):
-                                            st.write(f"연관 키워드: {', '.join(related_kws)}")
-
-                            # 진행 상황 업데이트
-                            progress_bar.progress((i + 1) / len(keyword_list))
-
-                            # 각 키워드 검색 후 잠시 대기
-                            time.sleep(random.uniform(1, 3))
-
-                        except Exception as e:
-                            error_msg = traceback.format_exc()
-                            st.error(f"키워드 '{keyword}' 처리 중 오류 발생: {str(e)}")
-                            st.text(error_msg)
-                            st.info("오류가 지속되면 관리자에게 문의하세요.")
-
-                finally:
-                    if driver:
-                        driver.quit()
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    st.markdown('<p class="section-header">키워드 배경색 설명</p>', unsafe_allow_html=True)
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.markdown(
+                            """
+                            <div class="color-box" style="background-color: #FFB3BA;">
+                                <p>지식스니펫 + 스마트블럭</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    
+                    with col2:
+                        st.markdown(
+                            """
+                            <div class="color-box" style="background-color: #90EE90;">
+                                <p>지식스니펫</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    
+                    with col3:
+                        st.markdown(
+                            """
+                            <div class="color-box" style="background-color: #ADD8E6;">
+                                <p>스마트블럭</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
                 # 엑셀 다운로드 버튼
-                excel_data = create_excel(df, keyword_types, smartblock_keywords)
+                excel_data = create_excel(df, keyword_types, {})  # smartblock_keywords는 빈 딕셔너리로 전달
                 st.download_button(
                     label="📥 엑셀 다운로드",
                     data=excel_data,
@@ -410,7 +407,27 @@ if selected_tab == "네이버":
 
     st.info("'순위 확인' 버튼을 클릭해서 검색 결과를 실시간으로 확인하세요.")
 
-elif selected_tab == "구글":
+def process_keywords(keyword_list, dongju_url_dict):
+    results_list = []
+    related_keywords_dict = {}
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_keyword = {executor.submit(get_google_search_results, keyword, dongju_url_dict): keyword for keyword in keyword_list}
+        for future in concurrent.futures.as_completed(future_to_keyword):
+            keyword = future_to_keyword[future]
+            try:
+                results, related_keywords = future.result()
+                if results is not None:
+                    results_list.append(results)
+                    related_keywords_dict[keyword] = related_keywords
+            except Exception as exc:
+                st.error(f'{keyword} generated an exception: {exc}')
+    
+    return results_list, related_keywords_dict
+
+
+# 구글 탭 내의 코드를 다음과 같이 수정
+if selected_tab == "구글":
     st.title("🔍 구글 순위 체크 및 검색량 조회")
 
     # 팀 선택
@@ -431,9 +448,11 @@ elif selected_tab == "구글":
         "https://fraudembezzlement-dongju.com": "사기횡령전담센터",
         "https://criminal-lawfirm-dongju.com/": "신규 형사 홈페이지(SEO)",
     }
+    # 전역 변수로 WebDriver 풀 생성
+    driver_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
     def get_google_search_results(keyword, dongju_url_dict):
-        driver = initialize_webdriver()
+        driver = driver_pool.submit(initialize_webdriver).result()
         if driver is None:
             return None, None
 
@@ -449,11 +468,12 @@ elif selected_tab == "구글":
 
         try:
             driver.get(f"https://www.google.com/search?q={keyword}")
-            time.sleep(2)
 
             # 스니펫 확인
             try:
-                snippet = driver.find_element(By.CSS_SELECTOR, ".g.wF4fFd.JnwWd.g-blk .tjvcx.GvPZzd.cHaqb")
+                snippet = WebDriverWait(driver, 3).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".g.wF4fFd.JnwWd.g-blk .tjvcx.GvPZzd.cHaqb"))
+                )
                 snippet_text = snippet.text.split('›')[0].strip()
                 for url, name in dongju_url_dict.items():
                     if url in snippet_text:
@@ -463,7 +483,9 @@ elif selected_tab == "구글":
                 pass
 
             # 순위 확인
-            links = driver.find_elements(By.CSS_SELECTOR, '.g a')
+            links = WebDriverWait(driver, 3).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.g a'))
+            )
             for i, link in enumerate(links[:15], start=1):
                 href = link.get_attribute('href')
                 for url, name in dongju_url_dict.items():
@@ -484,8 +506,7 @@ elif selected_tab == "구글":
             st.info("오류가 지속되면 관리자에게 문의하세요.")
             related_keywords = []
         finally:
-            if driver:
-                driver.quit()
+            driver_pool.submit(driver.quit)
 
         return results, related_keywords
 
@@ -505,31 +526,18 @@ elif selected_tab == "구글":
             if not keyword_list:
                 st.error("유효한 키워드를 입력해주세요.")
             else:
-                results_list = []
-                related_keywords_dict = {}
-
                 # 실시간 결과 표시를 위한 placeholder
                 result_placeholder = st.empty()
                 progress_bar = st.progress(0)
 
-                for i, keyword in enumerate(keyword_list):
-                    results, related_keywords = get_google_search_results(keyword, google_dongju_url_dict)
-                    if results is not None:
-                        results_list.append(results)
-                        related_keywords_dict[keyword] = related_keywords
+                results_list, related_keywords_dict = process_keywords(keyword_list, google_dongju_url_dict)
 
-                        # 실시간으로 결과 표시
-                        with result_placeholder.container():
-                            st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
-                            df = pd.DataFrame(results_list)
-                            styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
-                            st.dataframe(styled_df, use_container_width=True)
-
-                    # 진행 상황 업데이트
-                    progress_bar.progress((i + 1) / len(keyword_list))
-
-                    # 각 키워드 검색 후 잠시 대기
-                    time.sleep(random.uniform(1, 3))
+                # 결과 표시
+                with result_placeholder.container():
+                    st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
+                    df = pd.DataFrame(results_list)
+                    styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
+                    st.dataframe(styled_df, use_container_width=True)
 
                 # 스니펫 추가 설명 UI
                 st.markdown('<p class="section-header">스니펫 추가 설명</p>', unsafe_allow_html=True)
