@@ -62,6 +62,63 @@ class Signature:
 # 전역 변수로 WebDriver 풀 생성
 driver_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
+def get_google_search_results(keyword, dongju_url_dict):
+    driver = driver_pool.submit(initialize_webdriver).result()
+    if driver is None:
+        return None, None
+
+    results = {
+        '키워드': keyword,
+        '스니펫': '',
+    }
+
+    for i in range(1, 16):
+        results[f'{i}'] = ''
+
+    try:
+        driver.get(f"https://www.google.com/search?q={keyword}")
+
+        # 스니펫 확인
+        try:
+            snippet = WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".g.wF4fFd.JnwWd.g-blk .tjvcx.GvPZzd.cHaqb"))
+            )
+            snippet_text = snippet.text.split('›')[0].strip()
+            for url, name in dongju_url_dict.items():
+                if url in snippet_text:
+                    results['스니펫'] = name
+                    break
+        except:
+            pass
+
+        # 순위 확인
+        links = WebDriverWait(driver, 3).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.g a'))
+        )
+        for i, link in enumerate(links[:15], start=1):
+            href = link.get_attribute('href')
+            for url, name in dongju_url_dict.items():
+                if url in href:
+                    results[f'{i}'] = name
+                    break
+
+        # 연관 검색어 추출
+        html = driver.page_source
+        soup = BeautifulSoup(html, 'html.parser')
+        rel_keywords = soup.select(".oatEtb .dg6jd")
+        related_keywords = [rel_keyword.text for rel_keyword in rel_keywords]
+
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        st.error(f"검색 중 오류 발생: {str(e)}")
+        st.text(error_msg)
+        st.info("오류가 지속되면 관리자에게 문의하세요.")
+        related_keywords = []
+    finally:
+        driver_pool.submit(driver.quit)
+
+    return results, related_keywords
+
 def process_smartblock_results(driver, dongju_id_list):
     extracted_ids = []
     html = driver.page_source
@@ -81,6 +138,100 @@ def process_smartblock_results(driver, dongju_id_list):
     matching_id = next((id for id in extracted_ids if id in dongju_id_list), None)
     
     return matching_id
+
+def process_keywords(keyword_list, dongju_url_dict):
+    results_list = []
+    related_keywords_dict = {}
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_keyword = {executor.submit(get_google_search_results, keyword, dongju_url_dict): keyword for keyword in keyword_list}
+        for future in concurrent.futures.as_completed(future_to_keyword):
+            keyword = future_to_keyword[future]
+            try:
+                results, related_keywords = future.result()
+                if results is not None:
+                    results_list.append(results)
+                    related_keywords_dict[keyword] = related_keywords
+            except Exception as exc:
+                st.error(f'{keyword} generated an exception: {exc}')
+    
+    return results_list, related_keywords_dict
+
+# 스니펫 배경색 적용 함수
+def highlight_snippet(val):
+    if val:
+        return 'background-color: #90EE90'
+    return ''
+
+
+# 구글 검색용 엑셀 파일 생성 함수
+def create_excel_google(df):
+    output = BytesIO()
+    workbook = Workbook()
+    sheet = workbook.active
+
+    # 헤더 추가
+    for col, value in enumerate(df.columns.values, start=1):
+        sheet.cell(row=1, column=col, value=value)
+
+    # 데이터 추가 및 스타일 적용
+    for row, (index, data) in enumerate(df.iterrows(), start=2):
+        for col, value in enumerate(data.values, start=1):
+            cell = sheet.cell(row=row, column=col, value=value)
+            if col == 2:  # 스니펫 열
+                if value:  # 값이 있는 경우에만 배경색 적용
+                    cell.fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+
+    # 열 너비 자동 조정
+    for column in sheet.columns:
+        max_length = 0
+        column = [cell for cell in column]
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(cell.value)
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        sheet.column_dimensions[column[0].column_letter].width = adjusted_width
+
+    workbook.save(output)
+    return output.getvalue()
+
+# 엑셀 파일 생성 함수
+def create_excel(df):
+    output = BytesIO()
+    workbook = Workbook()
+    sheet = workbook.active
+
+    # 헤더 추가
+    for col, value in enumerate(df.columns.values, start=1):
+        sheet.cell(row=1, column=col, value=value)
+
+    # 데이터 추가 및 스타일 적용
+    for row, (index, data) in enumerate(df.iterrows(), start=2):
+        for col, value in enumerate(data.values, start=1):
+            cell = sheet.cell(row=row, column=col, value=value)
+            if col == 2:  # 스니펫 열
+                if value:  # 값이 있는 경우에만 배경색 적용
+                    cell.fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+
+    # 열 너비 자동 조정
+    for column in sheet.columns:
+        max_length = 0
+        column = [cell for cell in column]
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(cell.value)
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        sheet.column_dimensions[column[0].column_letter].width = adjusted_width
+
+    workbook.save(output)
+    return output.getvalue()
+
 
 def get_header(method, uri, api_key, secret_key, customer_id):
     timestamp = str(round(time.time() * 1000))
@@ -646,28 +797,28 @@ if selected_tab == "구글":
                 # 실시간 결과 표시를 위한 placeholder
                 result_placeholder = st.empty()
                 progress_bar = st.progress(0)
-
+    
                 results_list, related_keywords_dict = process_keywords(keyword_list, google_dongju_url_dict)
-
+    
                 # 결과 표시
                 with result_placeholder.container():
                     st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
                     df = pd.DataFrame(results_list)
                     styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
                     st.dataframe(styled_df, use_container_width=True)
-
+    
                 # 스니펫 추가 설명 UI
                 st.markdown('<p class="section-header">스니펫 추가 설명</p>', unsafe_allow_html=True)
                 st.info("스니펫에 배경색이 칠해진 경우, 법무법인 동주의 홈페이지가 스니펫에 있다는 뜻입니다.")
-
+    
                 # 연관 검색어 UI
                 st.markdown('<p class="section-header">연관 검색어</p>', unsafe_allow_html=True)
                 for keyword, related_kws in related_keywords_dict.items():
                     with st.expander(f"키워드: {keyword}"):
                         st.write(f"연관 검색어: {', '.join(related_kws)}")
-
+    
                 # 엑셀 다운로드 버튼 추가
-                excel_data = create_excel(df, {}, {})  # 구글 검색에서는 keyword_types와 smartblock_keywords를 사용하지 않으므로 빈 딕셔너리 전달
+                excel_data = create_excel_google(df)  # 수정된 부분
                 st.download_button(
                     label="📥 엑셀 다운로드",
                     data=excel_data,
