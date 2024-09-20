@@ -610,11 +610,12 @@ if selected_tab == "네이버":
                             row.update(results)
                             results_list.append(row)
 
-                            # 실시간으로 결과 표시
+                            # 결과 표시
                             with result_placeholder.container():
                                 st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
+                                # 수정된 스타일링 코드
                                 df = pd.DataFrame(results_list)
-                                styled_df = df.style.apply(lambda row: [color_keyword(val, keyword_types, row['키워드'], col) for col, val in row.items()], axis=1)
+                                styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
                                 st.dataframe(styled_df, use_container_width=True)
 
                                 st.markdown("<br>", unsafe_allow_html=True)
