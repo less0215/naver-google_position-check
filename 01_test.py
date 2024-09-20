@@ -177,9 +177,11 @@ def process_keywords(keyword_list, dongju_url_dict):
     
     return results_list, related_keywords_dict
 
-# 수정된 highlight_snippet 함수
+# 스니펫 배경색 적용 함수
 def highlight_snippet(val):
-    return 'background-color: #90EE90' if val else ''
+    if val:
+        return 'background-color: #90EE90'
+    return ''
 
 
 # 구글 검색용 엑셀 파일 생성 함수
@@ -613,9 +615,8 @@ if selected_tab == "네이버":
                             # 결과 표시
                             with result_placeholder.container():
                                 st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
-                                # 수정된 스타일링 코드
                                 df = pd.DataFrame(results_list)
-                                styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
+                                styled_df = df.style.map(highlight_snippet, subset=['스니펫'])
                                 st.dataframe(styled_df, use_container_width=True)
 
                                 st.markdown("<br>", unsafe_allow_html=True)
@@ -798,9 +799,11 @@ if selected_tab == "구글":
 
         return results, related_keywords
 
-    # 수정된 highlight_snippet 함수
+    # 스니펫 배경색 적용 함수
     def highlight_snippet(val):
-        return 'background-color: #90EE90' if val else ''
+        if val:
+            return 'background-color: #90EE90'
+        return ''
 
     # 순위 확인 버튼
     if st.button("순위 확인"):
