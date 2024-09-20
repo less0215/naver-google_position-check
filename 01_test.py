@@ -42,6 +42,12 @@ def initialize_webdriver():
     chrome_options.add_argument("--window-size=1920x1080")
     chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     
+    # 추가된 옵션
+    chrome_options.add_argument("--incognito")
+    chrome_options.add_argument("--lang=ko-KR")
+    chrome_options.add_argument("--accept-language=ko-KR,ko;q=0.9")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
     try:
         driver = webdriver.Chrome(options=chrome_options)
         return driver
@@ -698,7 +704,7 @@ def process_keywords(keyword_list, dongju_url_dict):
 
 # 구글 탭 내의 코드를 다음과 같이 수정
 if selected_tab == "구글":
-    st.title("🔍 구글 순위 체크")
+    st.title("🔍 구글 순위 체크")  # 타이틀 변경
 
     # 팀 선택
     google_selected_team = st.selectbox("팀 선택", ["성범죄연구센터", "교통음주연구센터", "청소년연구센터", "사기횡령연구센터", "신규 형사(SEO)"])
@@ -718,6 +724,71 @@ if selected_tab == "구글":
         "https://fraudembezzlement-dongju.com": "사기횡령전담센터",
         "https://criminal-lawfirm-dongju.com/": "신규 형사 홈페이지(SEO)",
     }
+    # 전역 변수로 WebDriver 풀 생성
+    driver_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+
+    def get_google_search_results(keyword, dongju_url_dict):
+        driver = driver_pool.submit(initialize_webdriver).result()
+        if driver is None:
+            return None, None
+
+        results = {
+            '키워드': keyword,
+            '스니펫': '',
+        }
+
+        for i in range(1, 16):
+            results[f'{i}'] = ''
+
+        try:
+            driver.get(f"https://www.google.com/search?q={keyword}")
+
+            # 스니펫 확인
+            try:
+                snippet = WebDriverWait(driver, 3).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".g.wF4fFd.JnwWd.g-blk .tjvcx.GvPZzd.cHaqb"))
+                )
+                snippet_text = snippet.text.split('›')[0].strip()
+                for url, name in dongju_url_dict.items():
+                    if url in snippet_text:
+                        results['스니펫'] = name
+                        break
+            except:
+                pass
+
+            # 순위 확인
+            links = WebDriverWait(driver, 3).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.g a'))
+            )
+            for i, link in enumerate(links[:15], start=1):
+                href = link.get_attribute('href')
+                for url, name in dongju_url_dict.items():
+                    if url in href:
+                        results[f'{i}'] = name
+                        break
+
+            # 연관 검색어 추출
+            html = driver.page_source
+            soup = BeautifulSoup(html, 'html.parser')
+            rel_keywords = soup.select(".oatEtb .dg6jd")
+            related_keywords = [rel_keyword.text for rel_keyword in rel_keywords]
+
+        except Exception as e:
+            error_msg = traceback.format_exc()
+            st.error(f"검색 중 오류 발생: {str(e)}")
+            st.text(error_msg)
+            st.info("오류가 지속되면 관리자에게 문의하세요.")
+            related_keywords = []
+        finally:
+            driver_pool.submit(driver.quit)
+
+        return results, related_keywords
+
+    # 스니펫 배경색 적용 함수
+    def highlight_snippet(val):
+        if val:
+            return 'background-color: #90EE90'
+        return ''
 
     # 순위 확인 버튼
     if st.button("순위 확인"):
@@ -729,96 +800,31 @@ if selected_tab == "구글":
             if not keyword_list:
                 st.error("유효한 키워드를 입력해주세요.")
             else:
-                driver = initialize_webdriver()
-                if driver is None:
-                    st.stop()
-
-                try:
-                    results_list = []
-                    related_keywords_dict = {}
-
-                    result_placeholder = st.empty()
-                    progress_bar = st.progress(0)
-
-                    for i, keyword in enumerate(keyword_list):
-                        try:
-                            driver.get(f"https://www.google.com/search?q={keyword}")
-
-                            results = {
-                                '키워드': keyword,
-                                '스니펫': '',
-                            }
-                            for j in range(1, 16):
-                                results[f'{j}'] = ''
-
-                            # 스니펫 확인
-                            try:
-                                snippet = WebDriverWait(driver, 3).until(
-                                    EC.presence_of_element_located((By.CSS_SELECTOR, ".g.wF4fFd.JnwWd.g-blk .tjvcx.GvPZzd.cHaqb"))
-                                )
-                                snippet_text = snippet.text.split('›')[0].strip()
-                                for url, name in google_dongju_url_dict.items():
-                                    if url in snippet_text:
-                                        results['스니펫'] = name
-                                        break
-                            except:
-                                pass
-
-                            # 순위 확인
-                            links = WebDriverWait(driver, 3).until(
-                                EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.g a'))
-                            )
-                            for j, link in enumerate(links[:15], start=1):
-                                href = link.get_attribute('href')
-                                for url, name in google_dongju_url_dict.items():
-                                    if url in href:
-                                        results[f'{j}'] = name
-                                        break
-
-                            # 연관 검색어 추출
-                            html = driver.page_source
-                            soup = BeautifulSoup(html, 'html.parser')
-                            rel_keywords = soup.select(".oatEtb .dg6jd")
-                            related_keywords = [rel_keyword.text for rel_keyword in rel_keywords]
-                            related_keywords_dict[keyword] = related_keywords
-
-                            results_list.append(results)
-
-                            # 실시간으로 결과 표시
-                            with result_placeholder.container():
-                                st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
-                                df = pd.DataFrame(results_list)
-                                styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
-                                st.dataframe(styled_df, use_container_width=True)
-
-                            # 진행 상황 업데이트
-                            progress_bar.progress((i + 1) / len(keyword_list))
-
-                            # 각 키워드 검색 후 잠시 대기
-                            time.sleep(random.uniform(1, 3))
-
-                        except Exception as e:
-                            error_msg = traceback.format_exc()
-                            st.error(f"키워드 '{keyword}' 처리 중 오류 발생: {str(e)}")
-                            st.text(error_msg)
-                            st.info("오류가 지속되면 관리자에게 문의하세요.")
-
-                finally:
-                    if driver:
-                        driver.quit()
-
+                # 실시간 결과 표시를 위한 placeholder
+                result_placeholder = st.empty()
+                progress_bar = st.progress(0)
+    
+                results_list, related_keywords_dict = process_keywords(keyword_list, google_dongju_url_dict)
+    
+                # 결과 표시
+                with result_placeholder.container():
+                    st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
+                    df = pd.DataFrame(results_list)
+                    styled_df = df.style.map(highlight_snippet, subset=['스니펫'])
+                    st.dataframe(styled_df, use_container_width=True)
+    
                 # 스니펫 추가 설명 UI
                 st.markdown('<p class="section-header">스니펫 추가 설명</p>', unsafe_allow_html=True)
                 st.info("스니펫에 배경색이 칠해진 경우, 법무법인 동주의 홈페이지가 스니펫에 있다는 뜻입니다.")
-
+    
                 # 연관 검색어 UI
                 st.markdown('<p class="section-header">연관 검색어</p>', unsafe_allow_html=True)
                 for keyword, related_kws in related_keywords_dict.items():
                     with st.expander(f"키워드: {keyword}"):
                         st.write(f"연관 검색어: {', '.join(related_kws)}")
-
+    
                 # 엑셀 다운로드 버튼 추가
-                excel_data = create_excel_google(df)
+                excel_data = create_excel_google(df)  # 수정된 부분
                 st.download_button(
                     label="📥 엑셀 다운로드",
                     data=excel_data,
