@@ -18,20 +18,8 @@ import base64
 import traceback
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
-import pytz
-from datetime import datetime
-import logging
-import sys
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# 시간대 설정
-seoul_tz = pytz.timezone('Asia/Seoul')
-current_time = datetime.now(seoul_tz)
-
-# Streamlit 페이지 설정 (반드시 첫 번째 Streamlit 명령어여야 함)
 st.set_page_config(
     page_title="법무법인 동주 SEO",
     layout='wide'
@@ -50,19 +38,18 @@ def initialize_webdriver():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-features=NetworkService")
     chrome_options.add_argument("--window-size=1920x1080")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     
-    # 추가 및 수정된 옵션
+    # 추가된 옵션
+    chrome_options.add_argument("--incognito")
     chrome_options.add_argument("--lang=ko-KR")
-    chrome_options.add_argument("--accept-language=ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
+    chrome_options.add_argument("--accept-language=ko-KR,ko;q=0.9")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    
+
     try:
-        if sys.platform.startswith("win"):
-            driver = webdriver.Chrome(options=chrome_options)
-        else:
-            driver = webdriver.Chrome("/usr/bin/chromedriver", options=chrome_options)
+        driver = webdriver.Chrome(options=chrome_options)
         return driver
     except Exception as e:
         st.error(f"WebDriver 초기화 중 오류 발생: {str(e)}")
@@ -82,7 +69,6 @@ class Signature:
 driver_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 def get_google_search_results(keyword, dongju_url_dict):
-    logger.info(f"Searching Google for keyword: {keyword}")
     driver = driver_pool.submit(initialize_webdriver).result()
     if driver is None:
         return None, None
@@ -96,7 +82,7 @@ def get_google_search_results(keyword, dongju_url_dict):
         results[f'{i}'] = ''
 
     try:
-        driver.get(f"https://www.google.com/search?q={keyword}&hl=ko&gl=kr")
+        driver.get(f"https://www.google.com/search?q={keyword}")
 
         # 스니펫 확인
         try:
@@ -291,7 +277,6 @@ def get_search_volume(keyword):
         return 0, 0
 
 def get_naver_search_results(keyword, dongju_id_list):
-    logger.info(f"Searching Naver for keyword: {keyword}")
     keyword_type = ''
 
     driver = driver_pool.submit(initialize_webdriver).result()
@@ -310,7 +295,7 @@ def get_naver_search_results(keyword, dongju_id_list):
 
     try:
         preprocessed_keyword = keyword.replace(" ", "")
-        driver.get(f"https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=1&ie=utf8&query={preprocessed_keyword}")
+        driver.get(f"https://search.naver.com/search.naver?ssc=tab.nx.all&where=nexearch&sm=tab_jum&query={preprocessed_keyword}")
 
         is_knowledge_snippet = False
         is_smartblock = False
@@ -612,15 +597,11 @@ if selected_tab == "네이버":
                             row.update(results)
                             results_list.append(row)
 
-                            # 결과 표시
+                            # 실시간으로 결과 표시
                             with result_placeholder.container():
                                 st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
-                                # 수정된 스타일링 코드
                                 df = pd.DataFrame(results_list)
-                                if '스니펫' in df.columns:
-                                    styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
-                                else:
-                                    styled_df = df.style
+                                styled_df = df.style.apply(lambda row: [color_keyword(val, keyword_types, row['키워드'], col) for col, val in row.items()], axis=1)
                                 st.dataframe(styled_df, use_container_width=True)
 
                                 st.markdown("<br>", unsafe_allow_html=True)
@@ -828,12 +809,8 @@ if selected_tab == "구글":
                 # 결과 표시
                 with result_placeholder.container():
                     st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
-                    # 수정된 스타일링 코드
                     df = pd.DataFrame(results_list)
-                    if '스니펫' in df.columns:
-                        styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
-                    else:
-                        styled_df = df.style
+                    styled_df = df.style.map(highlight_snippet, subset=['스니펫'])
                     st.dataframe(styled_df, use_container_width=True)
     
                 # 스니펫 추가 설명 UI
