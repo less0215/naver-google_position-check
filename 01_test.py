@@ -615,8 +615,12 @@ if selected_tab == "네이버":
                             # 결과 표시
                             with result_placeholder.container():
                                 st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
+                                # 수정된 스타일링 코드
                                 df = pd.DataFrame(results_list)
-                                styled_df = df.style.map(highlight_snippet, subset=['스니펫'])
+                                if '스니펫' in df.columns:
+                                    styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
+                                else:
+                                    styled_df = df.style
                                 st.dataframe(styled_df, use_container_width=True)
 
                                 st.markdown("<br>", unsafe_allow_html=True)
@@ -826,7 +830,10 @@ if selected_tab == "구글":
                     st.markdown('<p class="section-header">실시간 검색 결과</p>', unsafe_allow_html=True)
                     # 수정된 스타일링 코드
                     df = pd.DataFrame(results_list)
-                    styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
+                    if '스니펫' in df.columns:
+                        styled_df = df.style.applymap(highlight_snippet, subset=['스니펫'])
+                    else:
+                        styled_df = df.style
                     st.dataframe(styled_df, use_container_width=True)
     
                 # 스니펫 추가 설명 UI
