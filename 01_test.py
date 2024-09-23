@@ -98,7 +98,7 @@ def get_google_search_results(keyword, dongju_url_dict):
             pass
 
         # 순위 확인
-        links = WebDriverWait(driver, 3).until(
+        links = WebDriverWait(driver, 5).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.g a'))
         )
         for i, link in enumerate(links[:15], start=1):
@@ -124,6 +124,29 @@ def get_google_search_results(keyword, dongju_url_dict):
         driver_pool.submit(driver.quit)
 
     return results, related_keywords
+
+def click_blog_tab(driver):
+    selectors = [
+        '.flick_bx:nth-of-type(2) > a',
+        '.flick_bx:nth-of-type(3) > a',
+        '[data-tab="view"][data-type="section"]'  # 추가적인 선택자
+    ]
+    
+    for selector in selectors:
+        try:
+            WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+            ).click()
+            time.sleep(1)  # 클릭 후 잠시 대기
+            
+            # 블로그 탭이 클릭되었는지 확인
+            if "blog" in driver.current_url or "view" in driver.current_url:
+                return True
+        except:
+            continue
+    
+    raise Exception("블로그 탭을 찾을 수 없습니다.")
+
 
 def process_smartblock_results(driver, dongju_id_list):
     extracted_ids = []
@@ -569,14 +592,19 @@ if selected_tab == "네이버":
                             keyword_types[keyword] = keyword_type
 
                             # 블로그 탭 클릭 및 순위 체크
-                            WebDriverWait(driver, 3).until(
-                                EC.element_to_be_clickable((By.CSS_SELECTOR, '.flick_bx:nth-of-type(3) > a'))
-                            ).click()
-
-                            # 3번 스크롤 처리
-                            for _ in range(3):
-                                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                                time.sleep(random.uniform(1, 1.5))
+                            try:
+                                if not click_blog_tab(driver):
+                                    st.warning(f"키워드 '{keyword}'에 대한 블로그 탭을 찾을 수 없습니다.")
+                                    continue
+                                
+                                # 3번 스크롤 처리
+                                for _ in range(3):
+                                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                                    time.sleep(random.uniform(1, 1.5))
+                    
+                            except Exception as e:
+                                st.error(f"키워드 '{keyword}' 처리 중 오류 발생: {str(e)}")
+                                continue
 
                             # 블로그 순위 체크
                             blog_ids = driver.find_elements(By.CSS_SELECTOR, '.user_info a')
