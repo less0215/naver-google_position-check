@@ -688,7 +688,7 @@ if selected_tab == "네이버":
                             progress_bar.progress((i + 1) / len(keyword_list))
 
                             # 각 키워드 검색 후 잠시 대기
-                            time.sleep(random.uniform(1, 3))
+                            time.sleep(random.uniform(1, 1.2))
 
                         except Exception as e:
                             error_msg = traceback.format_exc()
