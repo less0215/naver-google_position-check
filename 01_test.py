@@ -127,31 +127,30 @@ def get_google_search_results(keyword, dongju_url_dict):
 
 def click_blog_tab(driver):
     selectors = [
-        '.flick_bx:nth-of-type(3) > a',
+        'a[role="tab"].tab:has(i.ico_nav_blog)[onclick*="a=tab*b.jmp"]',  # 새로운 선택자
+        '.flick_bx:nth-of-type(1) > a',
         '.flick_bx:nth-of-type(2) > a',
+        '.flick_bx:nth-of-type(3) > a',
         '[data-tab="view"][data-type="section"]'
     ]
     
     for selector in selectors:
         try:
-            element = WebDriverWait(driver, 3).until(
+            element = WebDriverWait(driver, 1.5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
             )
             element.click()
-            time.sleep(1.5)  # 클릭 후 대기 시간
+            time.sleep(1)  # 클릭 후 잠시 대기
             
-            current_url = driver.current_url
-            
-            # URL에 'query='가 있고, 'ssc=tab.blog.all'이 포함되어 있는지 확인
-            if 'query=' in current_url and 'ssc=tab.blog.all' in current_url:
+            # 블로그 탭이 클릭되었는지 확인
+            if "blog" in driver.current_url:
                 return True
-            
         except Exception as e:
-            print(f"선택자 {selector} 시도 중 오류 발생: {str(e)}")
+            print(f"선택자 {selector}에 대한 클릭 실패: {str(e)}")
             continue
     
-    raise Exception("블로그 탭을 찾을 수 없습니다.")
-
+    print("블로그 탭을 찾을 수 없습니다.")
+    return False
 
 def process_smartblock_results(driver, dongju_id_list):
     extracted_ids = []
@@ -366,7 +365,7 @@ def get_naver_search_results(keyword, dongju_id_list):
         ).click()
 
         # 블로그 순위 체크
-        blog_ids = WebDriverWait(driver, 3).until(
+        blog_ids = WebDriverWait(driver, 1.5).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.user_info a'))
         )
         for rank, blog_id in enumerate(blog_ids[:15], start=1):
@@ -564,7 +563,7 @@ if selected_tab == "네이버":
                             keyword_type = ''
                             is_knowledge_snippet = False
                             is_smartblock = False
-                            
+
                             # 지식스니펫 확인
                             snippet_id = ''
                             try:
@@ -596,7 +595,7 @@ if selected_tab == "네이버":
                             # 키워드 유형 저장
                             keyword_types[keyword] = keyword_type
 
-                            # 블로그 탭 클릭 및 순위 체크
+                            # 여기서부터 새로운 코드를 삽입합니다
                             try:
                                 if not click_blog_tab(driver):
                                     st.warning(f"키워드 '{keyword}'에 대한 블로그 탭을 찾을 수 없습니다.")
@@ -606,12 +605,12 @@ if selected_tab == "네이버":
                                 for _ in range(3):
                                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                                     time.sleep(random.uniform(1, 1.5))
-                    
+
                             except Exception as e:
                                 st.error(f"키워드 '{keyword}' 처리 중 오류 발생: {str(e)}")
                                 continue
-
-                            # 블로그 순위 체크
+                            
+                            # 블로그 순위 체크 (기존 코드)
                             blog_ids = driver.find_elements(By.CSS_SELECTOR, '.user_info a')
                             results = {j: '' for j in range(1, 16)}  # 모든 순위를 빈 문자열로 초기화
                             for rank, blog_id in enumerate(blog_ids, start=1):
