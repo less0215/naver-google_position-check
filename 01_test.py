@@ -86,7 +86,7 @@ def get_google_search_results(keyword, dongju_url_dict):
 
         # 스니펫 확인
         try:
-            snippet = WebDriverWait(driver, 3).until(
+            snippet = WebDriverWait(driver, 1.5).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".g.wF4fFd.JnwWd.g-blk .tjvcx.GvPZzd.cHaqb"))
             )
             snippet_text = snippet.text.split('›')[0].strip()
@@ -98,7 +98,7 @@ def get_google_search_results(keyword, dongju_url_dict):
             pass
 
         # 순위 확인
-        links = WebDriverWait(driver, 5).until(
+        links = WebDriverWait(driver, 1.5).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.g a'))
         )
         for i, link in enumerate(links[:15], start=1):
@@ -329,7 +329,7 @@ def get_naver_search_results(keyword, dongju_id_list):
         
         # 지식스니펫 확인
         try:
-            knowledge_snippet = WebDriverWait(driver, 3).until(
+            knowledge_snippet = WebDriverWait(driver, 1.5).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '.source_box .txt.elss'))
             )
             split_knowledge_snippet = knowledge_snippet.get_attribute('href').split('/')[3]
@@ -341,7 +341,7 @@ def get_naver_search_results(keyword, dongju_id_list):
         
         # 스마트블럭 확인 및 처리
         try:
-            WebDriverWait(driver, 3).until(
+            WebDriverWait(driver, 1.5).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '.gSQMmoVs7gF12hlu3vMg.desktop_mode.api_subject_bx'))
             )
             is_smartblock = True
@@ -360,7 +360,7 @@ def get_naver_search_results(keyword, dongju_id_list):
             keyword_type = 'normal'
 
         # 블로그 탭 클릭
-        WebDriverWait(driver, 3).until(
+        WebDriverWait(driver, 1.5).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, '.flick_bx:nth-of-type(3) > a'))
         ).click()
 
